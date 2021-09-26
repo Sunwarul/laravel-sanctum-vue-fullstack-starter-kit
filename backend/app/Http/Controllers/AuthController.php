@@ -4,58 +4,100 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
+
+    /**
+     * Register User
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\Response
+     */
     public function register(Request $request)
     {
-        $request->validate([
-            'name' => 'required|string',
-            'email' => 'required|string',
-            'password' => 'required|string|min:6',
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users,email',
+            'password' => 'required|string|min:6|max:255|confirmed',
         ]);
-        
-        // return $request;
-        $user = User::create($request->only('name', 'email', 'password'));
-        $token = $user->createToken('register-token');
-        return ['token' => $token->plainTextToken];
+
+        $user = User::create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        $token = $user->createToken('register-token')->plainTextToken;
+        $response = [
+            'user' => $user,
+            'token' => $token,
+        ];
+        return \response($response, 201);
     }
 
-    public function login(Request $request) 
+     /**
+     * Login User
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\Response
+     */
+    public function login(Request $request)
     {
-        $request->validate([
-            'email' => 'required|string',
-            'password' => 'required|string|min:6',
+        $validated = $request->validate([
+            'email' => 'required|string|email|max:255',
+            'password' => 'required|string|min:6|max:255',
         ]);
-        
-        $user = User::where('email', $request->email)->first();
-        $token = $user->createToken('login-token');
-        return ['token' => $token->plainTextToken];
+
+        if(Auth::attempt(['email' => $validated['email'], 'password' => $validated['password']])) {
+            $user = auth()->user();
+            $token = $user->createToken('login-token')->plainTextToken;
+            $response = [
+                'user' => $user,
+                'token' => $token,
+            ];
+            return \response($response, 201);
+        };
+        return \response(['error' => 'Login failed']);
     }
 
+    
+     /**
+     * Logout User
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\Response
+     */
     public function logout(Request $request)
     {
-        $user = User::where('email', $request->email)->first();
-
+        $user = User::where('email', auth()->user()->email)->first();
         $user->tokens()->delete();
-        return response()->json(['message' => 'Successfully logged out']);
+        $response = [
+            'user' => $user,
+            'message' => "{$user->name} Successfully logged out"
+        ];
+        return \response($response, 205);
+        // return $user;
+        // return $user->tokens()->get();
     }
-    public function logoutById($id)
+
+    
+    /**
+     * Get Currently Logged-in User Tokens
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\Response
+     */
+    public function userTokens(Request $request, $id)
     {
+        return $request;
         $user = User::find($id);
-        return $user->tokens()->get()->pluck('name');
-        try {
-            $user->tokens()->delete();
-            return response()->json(['message' => 'Successfully logged out']);
-        } catch (Exception $exception) {
-            return response()->json(['error' => 'User not found']);
-            // return response()->json(['error' => $exception->getMessage()]);
+        if($user) {
+            return $user->tokens()->get(['id', 'tokenable_id', 'name']);
         }
-    }
-    public function userTokens($id)
-    {
-        $user = User::find($id);
-        return $user->tokens()->get();
-        // return $user->tokens()->get()->pluck('name');
+        $user = User::where('email',$request->email)->first();
+        return $user->tokens()->get('id', 'tokenable_id', 'name');
     }
 }
